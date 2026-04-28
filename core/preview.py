@@ -27,20 +27,22 @@ def write_preview(out_path: str, by_agent: Dict[str, List[Dict]], quarter_label:
     bold = Font(bold=True)
     fill = PatternFill("solid", fgColor="FFE699")
 
-    # 対応表シート（先頭）
+    # 対応表シート（先頭）— 未設定は除外
     ws_idx = wb.create_sheet("_対応表")
     ws_idx.append(["代理店", "件数", "売上合計"])
     for c in ws_idx[1]:
         c.font = bold
         c.fill = fill
     for agent, n, total in agent_totals(by_agent):
+        if agent == UNASSIGNED_LABEL:
+            continue
         ws_idx.append([agent, n, total])
     ws_idx.column_dimensions["A"].width = 30
     ws_idx.column_dimensions["B"].width = 10
     ws_idx.column_dimensions["C"].width = 14
 
-    # 代理店シート
-    sorted_agents = [a for a, _, _ in agent_totals(by_agent)]
+    # 代理店シート — 未設定は除外
+    sorted_agents = [a for a, _, _ in agent_totals(by_agent) if a != UNASSIGNED_LABEL]
     used = set()
     for agent in sorted_agents:
         cols = _columns_for_agent(agent)

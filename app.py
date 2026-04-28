@@ -142,16 +142,19 @@ if run_preview:
 # 結果表示（セッションステート利用）
 if "by_agent" in st.session_state:
     by_agent = st.session_state["by_agent"]
-    st.success(f"代理店数: **{len(by_agent)}** （未マッピング含む）")
+    # 代理店ありのみカウント（未設定=直販想定で対象外）
+    mapped_agents = [a for a in by_agent if a != UNASSIGNED_LABEL]
+    unassigned_count = len(by_agent.get(UNASSIGNED_LABEL, []))
+    st.success(f"代理店数: **{len(mapped_agents)}**（直販＝未マッピング {unassigned_count} 行は対象外）")
 
-    # 対応表
-    rows = agent_totals(by_agent)
+    # 対応表 — 未設定は除外
+    rows = [r for r in agent_totals(by_agent) if r[0] != UNASSIGNED_LABEL]
     st.subheader("📋 対応表（代理店別）")
     import pandas as pd  # streamlit同梱
     df_tot = pd.DataFrame(rows, columns=["代理店", "件数", "売上合計"])
     st.dataframe(df_tot, use_container_width=True, hide_index=True)
 
-    # 各代理店プレビュー（タブ表示）
+    # 各代理店プレビュー（タブ表示）— 未設定は除外
     st.subheader("🏢 代理店別プレビュー")
     agent_names = [r[0] for r in rows]
     if agent_names:
@@ -160,6 +163,12 @@ if "by_agent" in st.session_state:
             with tab:
                 df = pd.DataFrame(by_agent[agent])
                 st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # 直販（未マッピング）— 確認用に折りたたみで表示
+    if unassigned_count:
+        with st.expander(f"⚠️ 直販／代理店未設定 {unassigned_count} 行（参考表示・対象外）"):
+            df_un = pd.DataFrame(by_agent[UNASSIGNED_LABEL])
+            st.dataframe(df_un, use_container_width=True, hide_index=True)
 
     # プレビューxlsxダウンロード
     st.subheader("⬇️ プレビューファイル")
