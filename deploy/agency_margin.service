@@ -1,0 +1,22 @@
+[Unit]
+Description=Agency Margin Aggregation - Streamlit
+After=network.target
+
+[Service]
+Type=simple
+User=skyuser
+Group=skyuser
+WorkingDirectory=/home/skyuser/agency_margin
+Environment="AGENCY_MARGIN_PARENT=/mnt/nas_share/_★20170701作業用/9三浦/代理店マージン精算書(2021.6～）"
+Environment="AGENCY_MARGIN_DIR=/mnt/nas_share/_★20170701作業用/9三浦/代理店マージン精算書(2021.6～）/カルチャーキッズマージン明細"
+ExecStart=/home/skyuser/agency_margin/.venv/bin/streamlit run app.py \
+  --server.port 8506 \
+  --server.address 0.0.0.0 \
+  --server.headless true \
+  --browser.gatherUsageStats false \
+  --server.fileWatcherType none
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
