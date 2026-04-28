@@ -84,4 +84,15 @@ MEIBO_COL_AGENT = 14
 PREVIEW_FILENAME_TEMPLATE = "_集計プレビュー_{quarter}.xlsx"
 
 # 代理店ファイル置場（更新先）
-DEFAULT_MARGIN_DIR = r"C:\Users\USER\Documents\三浦さんマージン清算\カルチャーキッズマージン明細"
+# 環境変数 AGENCY_MARGIN_DIR で上書き可能（NAS/サーバー運用用）
+import os as _os
+DEFAULT_MARGIN_DIR = _os.environ.get(
+    "AGENCY_MARGIN_DIR",
+    r"C:\Users\USER\Documents\三浦さんマージン清算\カルチャーキッズマージン明細",
+)
+
+# 親フォルダ（送信分・名簿の検出元）
+DEFAULT_PARENT_DIR = _os.environ.get(
+    "AGENCY_MARGIN_PARENT",
+    r"C:\Users\USER\Documents\三浦さんマージン清算",
+)
