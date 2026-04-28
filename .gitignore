@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+output/
+input_cache/
+*.tmp
+.DS_Store
+Thumbs.db
+.streamlit/secrets.toml
