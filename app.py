@@ -35,9 +35,9 @@ with st.sidebar:
     st.markdown("### 📖 使い方")
     st.markdown(
         """
-1. **親フォルダを確認**
-2. **送信分3つを選択**（最新3つが初期選択）
-3. **名簿を確認**（自動選択）
+1. **親フォルダ**（基準パス）を入力
+2. **送信分xlsm 3つ＋名簿** のフルパスを入力
+3. **代理店マージン明細フォルダ** を確認
 4. **集計実行** → プレビューで内容確認
 5. **書込み** → 各代理店ファイルに追記
         """
@@ -84,133 +84,91 @@ parent_dir = st.text_input(
 )
 
 
-def list_send_folders(parent: str) -> List[Dict]:
-    """親フォルダ内の "YYYY年MM月DD日送信分" 全候補を返す（新しい順）"""
-    if not os.path.isdir(parent):
-        return []
-    pattern = re.compile(r"^(\d{4})年(\d{1,2})月(\d{1,2})日送信分$")
-    cands = []
-    for name in os.listdir(parent):
-        full = os.path.join(parent, name)
-        if not os.path.isdir(full):
-            continue
-        m = pattern.match(name)
-        if not m:
-            continue
-        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        try:
-            dt = datetime(y, mo, d)
-        except ValueError:
-            continue
-        xlsms = [
-            f for f in os.listdir(full)
-            if f.lower().endswith(".xlsm") and "入金チェック" in f
-        ]
-        if not xlsms:
-            xlsms = [f for f in os.listdir(full) if f.lower().endswith(".xlsm")]
-        if not xlsms:
-            continue
-        xlsm_path = max(
-            (os.path.join(full, f) for f in xlsms),
-            key=os.path.getmtime,
-        )
-        cands.append({
-            "send_date": dt,
-            "folder": full,
-            "folder_name": name,
-            "xlsm_path": xlsm_path,
-            "xlsm_name": os.path.basename(xlsm_path),
-        })
-    cands.sort(key=lambda x: x["send_date"], reverse=True)
-    return cands
+def infer_target_month_from_path(path: str) -> str:
+    """ファイル名・パスから "YYYY年MM月" 推定。送信YYYY年MM月の前月を対象月とする"""
+    m = re.search(r"(\d{4})年(\d{1,2})月", os.path.basename(path))
+    if not m:
+        m = re.search(r"(\d{4})年(\d{1,2})月", path)
+    if not m:
+        return ""
+    y, mo = int(m.group(1)), int(m.group(2))
+    target_y, target_m = (y, mo - 1) if mo > 1 else (y - 1, 12)
+    return f"{target_y}年{target_m:02d}月"
 
 
-def list_meibo_candidates(parent: str) -> List[str]:
-    """親フォルダ直下の名簿候補（『名簿』を含む xls/xlsx）を返す"""
-    if not os.path.isdir(parent):
-        return []
-    out = []
-    for name in os.listdir(parent):
-        if "名簿" in name and name.lower().endswith((".xls", ".xlsx")):
-            out.append(os.path.join(parent, name))
-    return out
+# ============== STEP 2: 集計対象を手動で指定 ==============
+st.header("STEP 2：集計対象を手動で指定")
 
-
-def infer_target_month(send_date: datetime) -> str:
-    """送信月の前月＝対象月"""
-    y, mo = (send_date.year, send_date.month - 1) if send_date.month > 1 else (send_date.year - 1, 12)
-    return f"{y}年{mo:02d}月"
-
-
-# ============== STEP 2: 集計対象を選択 ==============
-st.header("STEP 2：集計対象を選択")
-
-all_send_folders = list_send_folders(parent_dir) if os.path.isdir(parent_dir) else []
-meibo_candidates = list_meibo_candidates(parent_dir) if os.path.isdir(parent_dir) else []
-margin_dir = os.path.join(parent_dir, "カルチャーキッズマージン明細")
-margin_dir_ok = os.path.isdir(margin_dir)
+st.markdown("**送信分xlsm を 3 つ＋名簿を、フルパスで入力してください**（NAS上のパスをそのままコピペ可）")
+st.caption(
+    "例：`" + os.path.join(parent_dir, "2026年2月17日送信分", "2026年2月17日送信(入金チェック）.xlsm") + "`"
+)
 
 ok = True
+sends_paths = []
+sends_targets = []
 
-# 送信分フォルダ — 手動選択（最新3つを初期値に）
-if all_send_folders:
-    options = [
-        f"{s['send_date'].strftime('%Y/%m/%d')}  ({s['folder_name']})"
-        for s in all_send_folders
-    ]
-    default_idx = list(range(min(3, len(options))))
-    selected_idx = st.multiselect(
-        "送信分フォルダを 3 つ選んでください（古→新の順で集計されます）",
-        options=list(range(len(options))),
-        default=default_idx,
-        format_func=lambda i: options[i],
-        help=f"親フォルダ内の {len(options)} 件から選択",
-    )
-    sends = [all_send_folders[i] for i in selected_idx]
+for i in range(3):
+    cols = st.columns([3, 1])
+    with cols[0]:
+        path = st.text_input(
+            f"送信分 {i+1} のフルパス（.xlsm）",
+            key=f"send_path_{i}",
+            placeholder="/mnt/nas_share/.../○○送信分/○○送信(入金チェック）.xlsm  または  C:\\Users\\...",
+        )
+    with cols[1]:
+        # 自動推定された対象月をデフォルトに、手動修正可
+        default_tm = infer_target_month_from_path(path) if path else ""
+        target_month = st.text_input(
+            f"対象月 {i+1}",
+            value=default_tm,
+            key=f"send_tm_{i}",
+            placeholder="2026年01月",
+        )
+    if path:
+        if not os.path.isfile(path):
+            st.error(f"  ❌ ファイルが見つかりません: {path}")
+            ok = False
+        elif not path.lower().endswith((".xlsm", ".xlsx")):
+            st.error(f"  ❌ xlsm/xlsx ファイルを指定してください: {os.path.basename(path)}")
+            ok = False
+        elif not target_month.strip():
+            st.warning(f"  ⚠️ 対象月を入力してください")
+            ok = False
+        else:
+            st.success(f"  ✅ {os.path.basename(path)}  →  対象月 {target_month}")
+            sends_paths.append(path)
+            sends_targets.append(target_month.strip())
+    else:
+        ok = False
 
-    if len(sends) != 3:
-        st.warning(f"⚠️ 3つ選んでください（現在 {len(sends)} 件）")
+# 名簿
+st.divider()
+meibo_path = st.text_input(
+    "名簿ファイルのフルパス（.xls / .xlsx）",
+    placeholder="/mnt/nas_share/.../カルチャーキッズ名簿.xls",
+)
+if meibo_path:
+    if not os.path.isfile(meibo_path):
+        st.error(f"❌ 名簿が見つかりません: {meibo_path}")
         ok = False
     else:
-        # 古い順に並べ替え
-        sends.sort(key=lambda s: s["send_date"])
-        df_sends = pd.DataFrame([
-            {
-                "送信日": s["send_date"].strftime("%Y/%m/%d"),
-                "対象月": infer_target_month(s["send_date"]),
-                "ファイル": s["xlsm_name"],
-            }
-            for s in sends
-        ])
-        st.dataframe(df_sends, use_container_width=True, hide_index=True)
+        st.success(f"✅ 名簿: {os.path.basename(meibo_path)}")
 else:
-    st.error("❌ 親フォルダ内に「YYYY年MM月DD日送信分」フォルダが見つかりません")
-    sends = []
-    ok = False
-
-# 名簿 — 手動選択
-if meibo_candidates:
-    if len(meibo_candidates) == 1:
-        meibo_path = meibo_candidates[0]
-        st.success(f"✅ 名簿: `{os.path.basename(meibo_path)}`")
-    else:
-        meibo_path = st.selectbox(
-            "名簿ファイルを選択",
-            options=meibo_candidates,
-            format_func=lambda p: os.path.basename(p),
-        )
-else:
-    st.error("❌ 名簿（『名簿』を含む .xls/.xlsx）が見つかりません")
-    meibo_path = None
     ok = False
 
 # 代理店マージン明細フォルダ
-if margin_dir_ok:
+st.divider()
+margin_dir = st.text_input(
+    "代理店マージン明細フォルダ（出力先）",
+    value=os.path.join(parent_dir, "カルチャーキッズマージン明細"),
+)
+if margin_dir and os.path.isdir(margin_dir):
     n_files = sum(1 for f in os.listdir(margin_dir)
                   if f.endswith((".xlsx", ".xls")) and "_bak_" not in f and "精算書" in f)
-    st.success(f"✅ 代理店マージン明細フォルダ: `{margin_dir}`（{n_files}ファイル）")
+    st.success(f"✅ 出力先: `{margin_dir}`（既存{n_files}ファイル）")
 else:
-    st.error(f"❌ 代理店マージン明細フォルダが見つかりません: {margin_dir}")
+    st.error(f"❌ フォルダが見つかりません: {margin_dir}")
     ok = False
 
 # ============== STEP 3: 集計実行 ==============
@@ -218,12 +176,22 @@ st.header("STEP 3：集計設定")
 
 c1, c2 = st.columns(2)
 with c1:
-    # 追加シート名のデフォルト = 選択した最新送信日の四半期末
-    if sends:
-        latest = max(s["send_date"] for s in sends)
-        target_q = ((latest.month - 1) // 3 + 1) * 3
-        default_sheet = f"{latest.year}年{target_q}月"
-    else:
+    # 追加シート名のデフォルト = 入力された対象月のうち最新の四半期末
+    default_sheet = ""
+    if sends_targets:
+        # "2026年01月" などをパースして最新を取る
+        latest_y, latest_m = 0, 0
+        for tm in sends_targets:
+            m = re.match(r"(\d{4})年(\d{1,2})月", tm)
+            if m:
+                y, mo = int(m.group(1)), int(m.group(2))
+                if (y, mo) > (latest_y, latest_m):
+                    latest_y, latest_m = y, mo
+        if latest_y:
+            target_q_y, target_q_m = (latest_y, latest_m + 2) if latest_m + 2 <= 12 else (latest_y + 1, latest_m + 2 - 12)
+            # シンプルに 入金月＝対象月+1 の四半期末で
+            default_sheet = f"{target_q_y}年{((target_q_m - 1)//3 + 1)*3}月"
+    if not default_sheet:
         default_sheet = f"{datetime.now().year}年{((datetime.now().month - 1)//3 + 1)*3}月"
     sheet_name = st.text_input(
         "追加シート名",
@@ -258,13 +226,9 @@ if run_btn:
     st.write(f"名簿の家族コード数: **{len(agent_map):,}**")
 
     with st.spinner("送信分xlsmから売上を抽出中…（⑮入金チェックシート参照）"):
-        # sends は古→新の順
         send_specs = [
-            {
-                "path": s["xlsm_path"],
-                "target_month": infer_target_month(s["send_date"]),
-            }
-            for s in sends
+            {"path": p, "target_month": tm}
+            for p, tm in zip(sends_paths, sends_targets)
         ]
         all_records = extract_all(send_specs)
     st.write(f"入金済み売上行: **{len(all_records):,}**")
