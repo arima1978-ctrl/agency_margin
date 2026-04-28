@@ -8,7 +8,7 @@ import os
 import io
 import sys
 import tempfile
-from datetime import datetime, date
+from datetime import datetime
 
 import streamlit as st
 
@@ -66,37 +66,31 @@ st.header("2. 各送信分の対象月・入金日を設定")
 st.caption("送信分のファイル名から自動推定しています。違っていたら修正してください。")
 
 
-def _infer_target_month(filename: str) -> tuple[str, date]:
-    """ファイル名から対象月と入金日を推定する"""
+def _infer_target_month(filename: str) -> str:
+    """ファイル名から対象月を推定する（送信月の前月）"""
     import re
     m = re.search(r"(\d{4})年(\d{1,2})月", filename)
     if m:
         y, mo = int(m.group(1)), int(m.group(2))
-        # 送信月の前月が対象月
         target_y, target_m = (y, mo - 1) if mo > 1 else (y - 1, 12)
-        # 入金日は送信月の翌月6日とする
-        nyu_y, nyu_m = (y, mo)
-        return f"{target_y}年{target_m:02d}月", date(nyu_y, nyu_m, 6)
-    return "", date.today()
+        return f"{target_y}年{target_m:02d}月"
+    return ""
 
 
+st.caption("📌 入金日は各xlsmの ⑮入金チェックシート P列から自動取得します（未入金は対象外）")
 send_specs = []
 if xlsm_files:
     sorted_xlsm = sorted(xlsm_files, key=lambda f: f.name)
     for i, f in enumerate(sorted_xlsm[:3]):
-        target_default, nyukin_default = _infer_target_month(f.name)
-        c1, c2, c3 = st.columns([3, 2, 2])
+        target_default = _infer_target_month(f.name)
+        c1, c2 = st.columns([3, 2])
         with c1:
             st.text(f"📄 {f.name}")
         with c2:
             target = st.text_input(
                 "対象月", value=target_default, key=f"target_{i}"
             )
-        with c3:
-            nyukin = st.date_input(
-                "入金日", value=nyukin_default, key=f"nyukin_{i}"
-            )
-        send_specs.append({"file": f, "target_month": target, "nyukin_date": nyukin})
+        send_specs.append({"file": f, "target_month": target})
 
 # ---------- 3. 出力設定 ----------
 st.header("3. 出力先・追加シート名")
@@ -125,12 +119,11 @@ if run_preview:
         agent_map, juku_map = load_agent_map(meibo_path)
     st.write(f"名簿の家族コード数: **{len(agent_map)}**")
 
-    with st.spinner("送信分xlsmから売上を抽出中…"):
+    with st.spinner("送信分xlsmから売上を抽出中…（⑮入金チェックシート参照）"):
         for s in send_specs:
             s["path"] = _save_uploaded(s["file"])
-            s["nyukin_date"] = datetime.combine(s["nyukin_date"], datetime.min.time())
         all_records = extract_all(send_specs)
-    st.write(f"抽出した売上行: **{len(all_records)}**")
+    st.write(f"抽出した売上行（入金済み・代理店判定前）: **{len(all_records)}**")
 
     with st.spinner("代理店割当・集計中…"):
         assigned = assign_agent(all_records, agent_map, juku_map)

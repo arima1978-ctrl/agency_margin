@@ -2,13 +2,22 @@
 from __future__ import annotations
 import os
 import warnings
-from typing import List, Dict
-from datetime import datetime
+from typing import List, Dict, Optional
+from datetime import datetime, date
 
 warnings.filterwarnings("ignore")
 import openpyxl
 
-from .config import CATEGORIES, COL_KAZOKU_ID, COL_RYOKIN, COL_JUKUMEI
+from .config import (
+    CATEGORIES,
+    COL_KAZOKU_ID,
+    COL_RYOKIN,
+    COL_JUKUMEI,
+    NYUKIN_SHEET,
+    NYUKIN_DATA_START,
+    NYUKIN_COL_KAZOKU_ID,
+    NYUKIN_COL_NYUKIN_DATE,
+)
 
 
 def _to_int(v):
@@ -37,14 +46,57 @@ def _to_money(v) -> int:
         return 0
 
 
-def extract_sales(xlsm_path: str, target_month: str, nyukin_date: datetime) -> List[Dict]:
+def _coerce_date(v) -> Optional[datetime]:
+    """セル値を datetime に変換。日付として認識できなければ None。"""
+    if v is None or v == "":
+        return None
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, date):
+        return datetime(v.year, v.month, v.day)
+    # 文字列日付（"2026-02-06" 等）に対応
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
+            try:
+                return datetime.strptime(s, fmt)
+            except ValueError:
+                continue
+    return None
+
+
+def load_paid_map(wb) -> Dict[int, datetime]:
+    """⑮入金チェックシートの P列から {家族ID: 入金日} を作る（P列空欄は未入金で除外）"""
+    if NYUKIN_SHEET not in wb.sheetnames:
+        return {}
+    ws = wb[NYUKIN_SHEET]
+    paid: Dict[int, datetime] = {}
+    for row in ws.iter_rows(min_row=NYUKIN_DATA_START, values_only=True):
+        if row is None or len(row) <= max(NYUKIN_COL_KAZOKU_ID, NYUKIN_COL_NYUKIN_DATE):
+            continue
+        kid = _to_int(row[NYUKIN_COL_KAZOKU_ID])
+        if not kid or kid <= 0:
+            continue
+        d = _coerce_date(row[NYUKIN_COL_NYUKIN_DATE])
+        if d is None:
+            continue  # 未入金 → 対象外
+        # 同じ家族IDが複数行ある場合は最も後の入金日を採用
+        if kid not in paid or d > paid[kid]:
+            paid[kid] = d
+    return paid
+
+
+def extract_sales(xlsm_path: str, target_month: str) -> List[Dict]:
     """1つの送信分xlsmから (家族ID, 塾名) ごとに集計したレコード配列を返す。
 
-    各レコードは：
-      {家族ID, 塾名, 対象月, 入金日, ④_4カルチャ加盟金…, 速読ID利用料, 合計}
+    入金日は ⑮入金チェックシート P列から取得し、未入金（P列空欄）の家族IDは除外する。
     """
-    rows: Dict = {}
     wb = openpyxl.load_workbook(xlsm_path, data_only=True, read_only=True)
+    paid_map = load_paid_map(wb)
+
+    rows: Dict = {}
     available = set(wb.sheetnames)
     for cat in CATEGORIES:
         if cat not in available:
@@ -58,6 +110,8 @@ def extract_sales(xlsm_path: str, target_month: str, nyukin_date: datetime) -> L
             kid = _to_int(row[COL_KAZOKU_ID])
             if not kid or kid <= 0:
                 continue
+            if kid not in paid_map:
+                continue  # 未入金 → 対象外
             ryokin = _to_money(row[COL_RYOKIN])
             if ryokin == 0:
                 continue
@@ -75,7 +129,7 @@ def extract_sales(xlsm_path: str, target_month: str, nyukin_date: datetime) -> L
             "家族ID": kid,
             "塾名": juku,
             "対象月": target_month,
-            "入金日": nyukin_date,
+            "入金日": paid_map[kid],
             **cats,
             "合計": sum(cats.values()),
         }
@@ -86,10 +140,10 @@ def extract_sales(xlsm_path: str, target_month: str, nyukin_date: datetime) -> L
 def extract_all(send_specs: List[Dict]) -> List[Dict]:
     """複数送信分を順に抽出してフラット結合。
 
-    send_specs: [{"path", "target_month", "nyukin_date"}, ...]
+    send_specs: [{"path", "target_month"}, ...]
     """
     all_records = []
     for s in send_specs:
-        recs = extract_sales(s["path"], s["target_month"], s["nyukin_date"])
+        recs = extract_sales(s["path"], s["target_month"])
         all_records.extend(recs)
     return all_records

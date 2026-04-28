@@ -58,6 +58,13 @@ COL_KAZOKU_ID = 2
 COL_RYOKIN = 7
 COL_JUKUMEI = 9
 
+# ⑮入金チェックシート
+NYUKIN_SHEET = "⑮入金チェックシート"
+NYUKIN_DATA_START = 4  # R4 から（R3はヘッダ）
+NYUKIN_COL_KAZOKU_ID = 0   # A列
+NYUKIN_COL_JUKUMEI = 2     # C列
+NYUKIN_COL_NYUKIN_DATE = 15  # P列
+
 # 名簿（本部登録）列インデックス
 MEIBO_SHEET = "本部登録"
 MEIBO_HEADER_ROW = 2  # 0-indexed → R3が見出し
