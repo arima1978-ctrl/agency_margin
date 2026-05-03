@@ -89,14 +89,17 @@ def load_paid_map(wb) -> Dict[int, datetime]:
 
 
 def extract_sales(xlsm_path: str, target_month: str) -> List[Dict]:
-    """1つの送信分xlsmから (家族ID, 塾名) ごとに集計したレコード配列を返す。
+    """1つの送信分xlsmから 家族ID ごとに集計したレコード配列を返す。
 
+    同一家族IDが複数の塾名で登録されている場合は1行に集約する（金額は合算、
+    塾名は最長の表記を採用）。
     入金日は ⑮入金チェックシート P列から取得し、未入金（P列空欄）の家族IDは除外する。
     """
     wb = openpyxl.load_workbook(xlsm_path, data_only=True, read_only=True)
     paid_map = load_paid_map(wb)
 
-    rows: Dict = {}
+    # kid -> {"juku_candidates": set, category amounts...}
+    rows: Dict[int, Dict] = {}
     available = set(wb.sheetnames)
     for cat in CATEGORIES:
         if cat not in available:
@@ -117,21 +120,28 @@ def extract_sales(xlsm_path: str, target_month: str) -> List[Dict]:
                 continue
             juku = row[COL_JUKUMEI]
             juku = juku.strip() if isinstance(juku, str) else (str(juku) if juku else "")
-            key = (kid, juku)
-            if key not in rows:
-                rows[key] = {c: 0 for c in CATEGORIES}
-            rows[key][cat] += ryokin
+            if kid not in rows:
+                rows[kid] = {"juku_candidates": set(), **{c: 0 for c in CATEGORIES}}
+            if juku:
+                rows[kid]["juku_candidates"].add(juku)
+            rows[kid][cat] += ryokin
     wb.close()
 
     out: List[Dict] = []
-    for (kid, juku), cats in rows.items():
+    for kid, data in rows.items():
+        candidates = data.pop("juku_candidates")
+        # 塾名は最長の表記を採用（短縮形より正式名称を優先）
+        juku_display = max(candidates, key=len) if candidates else ""
+        paid = paid_map[kid]
+        # 時刻成分は捨てて date-only にする（旧データの UTC ずれ等を防ぐ）
+        paid_date = datetime(paid.year, paid.month, paid.day)
         rec = {
             "家族ID": kid,
-            "塾名": juku,
+            "塾名": juku_display,
             "対象月": target_month,
-            "入金日": paid_map[kid],
-            **cats,
-            "合計": sum(cats.values()),
+            "入金日": paid_date,
+            **data,
+            "合計": sum(data.values()),
         }
         out.append(rec)
     return out

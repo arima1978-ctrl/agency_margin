@@ -67,6 +67,7 @@ def write_preview(out_path: str, by_agent: Dict[str, List[Dict]], quarter_label:
                 *(r.get(c, 0) for c in cols),
                 row_total,
             ])
+            ws.cell(row=ws.max_row, column=5).number_format = "yyyy/m/d"
             total_sum += row_total
         ws.append([])
         last = ["", "", "", "", "売上合計", *("" for _ in cols), total_sum]

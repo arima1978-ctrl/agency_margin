@@ -83,7 +83,8 @@ def _write_sheet(wb: openpyxl.Workbook, agent: str, records: List[Dict],
         ws.cell(row=row_offset, column=2, value=r["塾名"])
         ws.cell(row=row_offset, column=3, value=r["代理店"])
         ws.cell(row=row_offset, column=4, value=r["対象月"])
-        ws.cell(row=row_offset, column=5, value=r["入金日"])
+        date_cell = ws.cell(row=row_offset, column=5, value=r["入金日"])
+        date_cell.number_format = "yyyy/m/d"
         for ci, cat in enumerate(cols, start=6):
             ws.cell(row=row_offset, column=ci, value=r.get(cat, 0))
         ws.cell(row=row_offset, column=5 + len(cols) + 1, value=row_total)
