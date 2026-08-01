@@ -96,3 +96,10 @@ DEFAULT_PARENT_DIR = _os.environ.get(
     "AGENCY_MARGIN_PARENT",
     r"C:\Users\USER\Documents\三浦さんマージン清算",
 )
+
+# Windows側でNASを参照する表記 → サーバー(Linux)側マウントパスへの変換マップ
+# 事務員はY:ドライブやUNCパスをそのまま貼り付けられる（サーバー実行時のみ変換）
+NAS_PATH_MAP = [
+    (r"\\192.168.1.201\share", "/mnt/nas_share"),
+    ("Y:", "/mnt/nas_share"),
+]

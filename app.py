@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core.config import (
     DEFAULT_MARGIN_DIR,
     PREVIEW_FILENAME_TEMPLATE,
+    NAS_PATH_MAP,
 )
 from core.meibo import load_agent_map
 from core.extract import extract_all
@@ -57,6 +58,7 @@ with st.sidebar:
     st.markdown(
         """
 - 検出されない → ファイル名が `YYYY年MM月DD日送信分` で始まるか確認
+- ファイルが見つかりません → Y:ドライブ／`\\\\192.168.1.201\\share\\...` のパスは自動変換されます。それ以外のローカルパス（C:\\Users\\...等）はサーバーから参照できません
 - Excel書込み失敗 → Excelが起動中でないか確認
 - 未マッピング多い → 名簿の代理店列を確認
         """
@@ -77,11 +79,24 @@ st.header("STEP 1：データフォルダを選択")
 
 from core.config import DEFAULT_PARENT_DIR
 
+def to_local_path(path: str) -> str:
+    """WindowsのNAS表記（Y:\\... / \\\\192.168.1.201\\share\\...）をサーバー側マウントパスに変換する"""
+    if not path or os.name == "nt":
+        return path
+    normalized = path.replace("\\", "/")
+    for win_prefix, linux_prefix in NAS_PATH_MAP:
+        win_prefix_n = win_prefix.replace("\\", "/")
+        if normalized.lower().startswith(win_prefix_n.lower()):
+            return linux_prefix + normalized[len(win_prefix_n):]
+    return path
+
+
 parent_dir = st.text_input(
     "三浦さんマージン清算フォルダ",
     value=DEFAULT_PARENT_DIR,
     help="送信分フォルダ・名簿・代理店マージン明細を含む親フォルダのパス",
 )
+parent_dir = to_local_path(parent_dir)
 
 
 def infer_target_month_from_path(path: str) -> str:
@@ -114,8 +129,9 @@ for i in range(3):
         path = st.text_input(
             f"送信分 {i+1} のフルパス（.xlsm）",
             key=f"send_path_{i}",
-            placeholder="/mnt/nas_share/.../○○送信分/○○送信(入金チェック）.xlsm  または  C:\\Users\\...",
+            placeholder=r"Y:\...\○○送信分\○○送信(入金チェック）.xlsm  または  \\192.168.1.201\share\...",
         )
+        path = to_local_path(path)
     with cols[1]:
         # 自動推定された対象月をデフォルトに、手動修正可
         default_tm = infer_target_month_from_path(path) if path else ""
@@ -146,8 +162,9 @@ for i in range(3):
 st.divider()
 meibo_path = st.text_input(
     "名簿ファイルのフルパス（.xls / .xlsx）",
-    placeholder="/mnt/nas_share/.../カルチャーキッズ名簿.xls",
+    placeholder=r"Y:\...\カルチャーキッズ名簿.xls",
 )
+meibo_path = to_local_path(meibo_path)
 if meibo_path:
     if not os.path.isfile(meibo_path):
         st.error(f"❌ 名簿が見つかりません: {meibo_path}")
@@ -163,6 +180,7 @@ margin_dir = st.text_input(
     "代理店マージン明細フォルダ（出力先）",
     value=os.path.join(parent_dir, "カルチャーキッズマージン明細"),
 )
+margin_dir = to_local_path(margin_dir)
 if margin_dir and os.path.isdir(margin_dir):
     n_files = sum(1 for f in os.listdir(margin_dir)
                   if f.endswith((".xlsx", ".xls")) and "_bak_" not in f and "精算書" in f)
