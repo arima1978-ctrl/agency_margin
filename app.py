@@ -80,8 +80,14 @@ st.header("STEP 1：データフォルダを選択")
 from core.config import DEFAULT_PARENT_DIR
 
 def to_local_path(path: str) -> str:
-    """WindowsのNAS表記（Y:\\... / \\\\192.168.1.201\\share\\...）をサーバー側マウントパスに変換する"""
-    if not path or os.name == "nt":
+    """WindowsのNAS表記（Y:\\... / \\\\192.168.1.201\\share\\...）をサーバー側マウントパスに変換する
+
+    エクスプローラーの「パスのコピー」は前後に二重引用符を付けるため、それも除去する。
+    """
+    if not path:
+        return path
+    path = path.strip().strip('"').strip("'").strip()
+    if os.name == "nt":
         return path
     normalized = path.replace("\\", "/")
     for win_prefix, linux_prefix in NAS_PATH_MAP:
