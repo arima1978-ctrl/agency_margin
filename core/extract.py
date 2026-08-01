@@ -88,8 +88,8 @@ def load_paid_map(wb) -> Dict[int, datetime]:
     return paid
 
 
-def extract_sales(xlsm_path: str, target_month: str) -> List[Dict]:
-    """1つの送信分xlsmから 家族ID ごとに集計したレコード配列を返す。
+def extract_sales_with_diagnostics(xlsm_path: str, target_month: str) -> tuple[List[Dict], Dict]:
+    """1つの送信分xlsmから 家族ID ごとに集計したレコード配列と、読込診断情報を返す。
 
     同一家族IDが複数の塾名で登録されている場合は1行に集約する（金額は合算、
     塾名は最長の表記を採用）。
@@ -97,6 +97,12 @@ def extract_sales(xlsm_path: str, target_month: str) -> List[Dict]:
     """
     wb = openpyxl.load_workbook(xlsm_path, data_only=True, read_only=True)
     paid_map = load_paid_map(wb)
+    diag = {
+        "ファイル名": os.path.basename(xlsm_path),
+        "⑮入金チェックシート": "あり" if NYUKIN_SHEET in wb.sheetnames else "なし",
+        "入金日あり家族ID数": len(paid_map),
+        "検出カテゴリシート数": f"{sum(1 for c in CATEGORIES if c in wb.sheetnames)}/{len(CATEGORIES)}",
+    }
 
     # kid -> {"juku_candidates": set, category amounts...}
     rows: Dict[int, Dict] = {}
@@ -126,6 +132,7 @@ def extract_sales(xlsm_path: str, target_month: str) -> List[Dict]:
                 rows[kid]["juku_candidates"].add(juku)
             rows[kid][cat] += ryokin
     wb.close()
+    diag["抽出家族ID数"] = len(rows)
 
     out: List[Dict] = []
     for kid, data in rows.items():
@@ -144,7 +151,12 @@ def extract_sales(xlsm_path: str, target_month: str) -> List[Dict]:
             "合計": sum(data.values()),
         }
         out.append(rec)
-    return out
+    return out, diag
+
+
+def extract_sales(xlsm_path: str, target_month: str) -> List[Dict]:
+    records, _diag = extract_sales_with_diagnostics(xlsm_path, target_month)
+    return records
 
 
 def extract_all(send_specs: List[Dict]) -> List[Dict]:
@@ -157,3 +169,14 @@ def extract_all(send_specs: List[Dict]) -> List[Dict]:
         recs = extract_sales(s["path"], s["target_month"])
         all_records.extend(recs)
     return all_records
+
+
+def extract_all_with_diagnostics(send_specs: List[Dict]) -> tuple[List[Dict], List[Dict]]:
+    """extract_all と同様だが、送信分ごとの読込診断情報も返す。"""
+    all_records = []
+    diagnostics = []
+    for s in send_specs:
+        recs, diag = extract_sales_with_diagnostics(s["path"], s["target_month"])
+        all_records.extend(recs)
+        diagnostics.append(diag)
+    return all_records, diagnostics

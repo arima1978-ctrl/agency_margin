@@ -23,7 +23,7 @@ from core.config import (
     NAS_PATH_MAP,
 )
 from core.meibo import load_agent_map
-from core.extract import extract_all
+from core.extract import extract_all_with_diagnostics
 from core.aggregate import assign_agent, group_by_agent, agent_totals, UNASSIGNED_LABEL
 from core.preview import write_preview
 
@@ -254,8 +254,10 @@ if run_btn:
             {"path": p, "target_month": tm}
             for p, tm in zip(sends_paths, sends_targets)
         ]
-        all_records = extract_all(send_specs)
+        all_records, diagnostics = extract_all_with_diagnostics(send_specs)
     st.write(f"入金済み売上行: **{len(all_records):,}**")
+    with st.expander("🔍 送信分ごとの読込診断", expanded=len(all_records) == 0):
+        st.dataframe(pd.DataFrame(diagnostics), use_container_width=True, hide_index=True)
 
     with st.spinner("代理店割当・集計中…"):
         assigned = assign_agent(all_records, agent_map, juku_map)
